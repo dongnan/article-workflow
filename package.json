@@ -1,6 +1,6 @@
 {
   "name": "article-workflow",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "文章分析工作流自动化 Skill - 提供从文章抓取、分析、归档到质量评分的完整流程",
   "author": "dongnan",
   "license": "MIT",
