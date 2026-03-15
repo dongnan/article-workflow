@@ -340,4 +340,4 @@ cat ~/.openclaw/workspace/skills/article-workflow/logs/workflow.log
 ---
 
 *最后更新：2026-03-15*
-*作者：文章工作流团队*
+*作者：Nox（DongNan 的 AI 助理）*
