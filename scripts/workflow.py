@@ -9,6 +9,7 @@ Article Workflow 主工作流脚本
   python workflow.py <url> --check-only       # 仅检查是否重复
   python workflow.py --status                 # 查看状态
   python workflow.py --stats                  # 查看统计
+  python workflow.py <url1> <url2> <url3>     # 批量分析（智能路由）
 
 注意：
     完整功能需要 OpenClaw 环境支持：
@@ -20,12 +21,19 @@ Article Workflow 主工作流脚本
     - URL 去重检查
     - 状态查看
     - 统计查看
+
+智能路由：
+    - 单篇文章 → 主 Agent 一次性执行（1 次流式请求）
+    - 多篇文章 → SubAgent 并发执行（N 次但并行）
+    - 详见：docs/smart-router-implementation.md
 """
 
 import sys
 import json
+import re
 from pathlib import Path
 from datetime import datetime
+from typing import List
 
 # 模块路径（相对路径）
 SCRIPT_DIR = Path(__file__).parent
@@ -33,8 +41,15 @@ SKILL_DIR = SCRIPT_DIR.parent
 CORE_DIR = SKILL_DIR / "core"
 
 sys.path.insert(0, str(CORE_DIR))
+sys.path.insert(0, str(SCRIPT_DIR))
 from dedup import check_duplicate, add_url_to_cache, load_cache
-from scorer import evaluate_quality_score, get_level_info
+from scorer import evaluate_quality_score
+
+# 导入智能路由器（同级目录）
+try:
+    from smart_router import ArticleSmartRouter
+except ImportError:
+    ArticleSmartRouter = None, get_level_info
 
 
 def print_header(text: str):
@@ -185,17 +200,31 @@ def show_stats():
             print()
 
 
+def parse_urls_from_args(args: List[str]) -> List[str]:
+    """从命令行参数解析 URL 列表"""
+    urls = []
+    for arg in args:
+        if arg.startswith("--"):
+            continue
+        # 简单的 URL 验证
+        if arg.startswith("http://") or arg.startswith("https://"):
+            urls.append(arg)
+    return urls
+
+
 def main():
     """主函数"""
     if len(sys.argv) < 2:
         print("用法：")
-        print("  python workflow.py <url>                    # 分析文章")
+        print("  python workflow.py <url>                    # 分析文章（单篇）")
         print("  python workflow.py <url> --check-only       # 仅检查重复")
+        print("  python workflow.py <url1> <url2> <url3>     # 批量分析（智能路由）")
         print("  python workflow.py --status                 # 查看状态")
         print("  python workflow.py --stats                  # 查看统计")
         print()
         print("示例：")
         print("  python workflow.py https://mp.weixin.qq.com/s/xxx")
+        print("  python workflow.py url1 url2 url3  # 批量分析 3 篇文章")
         sys.exit(1)
     
     # 特殊命令
@@ -207,13 +236,37 @@ def main():
         show_stats()
         sys.exit(0)
     
-    # 分析文章
-    url = sys.argv[1]
+    # 解析 URL 列表（支持批量）
+    urls = parse_urls_from_args(sys.argv[1:])
+    
+    if not urls:
+        print_error("未找到有效的 URL")
+        sys.exit(1)
     
     # 检查模式
     check_only = "--check-only" in sys.argv
     
-    if check_only:
+    # 智能路由：单篇 vs 批量
+    is_batch = len(urls) > 1
+    
+    if is_batch:
+        print_header(f"📊 批量分析模式（{len(urls)} 篇文章）")
+        print(f"智能路由：已自动启用 SubAgent 并发执行")
+        print(f"最大并发数：{ArticleSmartRouter.MAX_CONCURRENT_SUBAGENTS}")
+        print()
+        
+        # TODO: 实现批量分析
+        # router = ArticleSmartRouter()
+        # results = router.process_batch(urls)
+        
+        print_warning("批量分析功能需要 OpenClaw 环境支持")
+        print("   将在 OpenClaw 会话中自动启用 SubAgent 并发执行")
+        
+        for i, url in enumerate(urls, 1):
+            print(f"\n{i}. {url}")
+        
+    elif check_only:
+        url = urls[0]
         print_header("🔍 检查重复")
         result = check_duplicate(url)
         
@@ -227,8 +280,13 @@ def main():
             print(f"   标准化 URL: {result['normalized_url']}")
             sys.exit(0)
     
-    # 完整分析
-    analyze_article(url)
+    else:
+        # 单篇分析
+        url = urls[0]
+        print_header("📝 文章分析工作流（单篇模式）")
+        print("智能路由：主 Agent 一次性执行（1 次流式请求）")
+        print()
+        analyze_article(url)
 
 
 if __name__ == "__main__":

@@ -5,8 +5,9 @@ logs/
 # 配置文件（包含敏感信息）
 config.json
 .env
-
-# Python
+.config.backup.json
+.env.backup
+*.backup
 
 # Python
 __pycache__/

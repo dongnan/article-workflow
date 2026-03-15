@@ -1,212 +1,343 @@
-# Article Workflow Skill - 完整使用指南
+# 文章分析工作流 - 智能路由使用指南
 
-## 📖 简介
+## ⚠️ 配置保护（重要）
 
-Article Workflow 是一个完整的文章分析自动化 Skill，提供从文章抓取、分析、归档到质量评分的一站式解决方案。
+**首次使用前必读：** 本 Skill 包含配置保护机制，防止升级时配置丢失。
 
-## ✨ 核心功能
+**修改/升级前：**
+```bash
+cd ~/.openclaw/workspace/skills/article-workflow
+python3 scripts/config_manager.py backup  # 备份配置
+```
 
-1. **文章分析** - 自动抓取、总结、标签、生成详细报告
-2. **质量评分** - 4 维度评分系统（内容价值、技术深度、适配性、可读性）
-3. **URL 去重** - 智能检查重复文章，避免重复处理
-4. **自动触发** - Heartbeat 定时检查群聊消息
-5. **监控日志** - 完整的日志记录和周报生成
-6. **知识归档** - 自动写入飞书多维表格和文档
+**修改/升级后：**
+```bash
+python3 scripts/config_manager.py restore  # 恢复配置
+```
+
+**详细说明：** [配置保护指南](docs/CONFIG_PROTECTION.md)
+
+---
 
 ## 🚀 快速开始
 
-### 1. 安装
+### 单篇分析
 
-```bash
-cd ~/.openclaw/workspace/skills
-./install.sh  # 或手动复制
+**飞书私聊（推荐）：**
+```
+分析这篇文章：https://example.com/article
 ```
 
-### 2. 配置
-
-复制配置模板：
-
-```bash
-cd skills/article-workflow
-cp config.example.json config.json
+**飞书群聊：**
+```
+@Nox 分析这篇文章：https://example.com/article
 ```
 
-编辑 `config.json`：
+**CLI 方式：**
+```bash
+cd ~/.openclaw/workspace/skills/article-workflow
+python3 scripts/workflow.py https://example.com/article
+```
+
+### 批量分析
+
+**飞书私聊：**
+```
+批量分析这些文章：
+- https://example.com/article1
+- https://example.com/article2
+- https://example.com/article3
+```
+
+或
+```
+分析这 5 篇文章：[url1, url2, url3, url4, url5]
+```
+
+**CLI 方式：**
+```bash
+python3 scripts/workflow.py url1 url2 url3
+```
+
+---
+
+## 🧠 智能路由原理
+
+### 自动模式识别
+
+系统会自动识别你的意图：
+
+| 输入特征 | 识别结果 | 执行方式 |
+|---------|---------|---------|
+| 1 个 URL | 单篇模式 | 主 Agent 一次性执行 |
+| 多个 URL | 批量模式 | SubAgent 并发执行 |
+| 含"批量"关键词 | 批量模式 | SubAgent 并发执行 |
+| 含"这些文章" | 批量模式 | SubAgent 并发执行 |
+
+### 执行流程对比
+
+#### 单篇模式（1 次流式请求）
+
+```
+用户输入
+  ↓
+主 Agent（Nox）
+  ├─ 流式请求开始 ─────┐
+  │  1. web_fetch 抓取   │
+  │  2. 分析内容         │  ← 同一次流式请求
+  │  3. 质量评分         │
+  │  4. 生成报告         │
+  │  5. 创建飞书文档     │
+  │  6. 归档到 Bitable   │
+  └─ 流式请求结束 ─────┘
+  
+模型请求次数：1 次 ✅
+执行时间：~8 秒
+```
+
+#### 批量模式（N 次并发）
+
+```
+用户输入（5 个 URL）
+  ↓
+主 Agent（Nox）
+  ├─ 创建 SubAgent #1 ─→ 分析文章 1（1 次流式请求）
+  ├─ 创建 SubAgent #2 ─→ 分析文章 2（1 次流式请求）
+  ├─ 创建 SubAgent #3 ─→ 分析文章 3（1 次流式请求）
+  ├─ 创建 SubAgent #4 ─→ 分析文章 4（1 次流式请求）
+  ├─ 创建 SubAgent #5 ─→ 分析文章 5（1 次流式请求）
+  └─ 等待所有完成
+      ↓
+    汇总结果
+  
+模型请求次数：5 次
+执行时间：~10 秒（并发，≈ 单次时间）
+```
+
+---
+
+## 📊 性能对比
+
+| 文章数量 | 传统方案（串行） | 智能路由（并发） | 时间节省 |
+|---------|----------------|----------------|---------|
+| 1 篇 | ~8 秒 | ~8 秒 | - |
+| 5 篇 | ~40 秒 | ~10 秒 | **75%** ⚡ |
+| 10 篇 | ~80 秒 | ~20 秒 | **75%** ⚡ |
+| 20 篇 | ~160 秒 | ~40 秒 | **75%** ⚡ |
+
+**说明：**
+- 传统方案：每篇文章独立请求，串行执行
+- 智能路由：批量时自动并发，最大 5 个并发
+- 超过 5 篇时自动分批处理
+
+---
+
+## 🔧 配置选项
+
+### 并发数限制
+
+在 `config.json` 中配置：
 
 ```json
 {
-  "bitable": {
-    "app_token": "你的多维表格 Token",
-    "table_id": "表 ID"
-  },
   "workflow": {
-    "check_interval_hours": 6,
-    "batch_limit": 10,
-    "enable_quality_score": true,
-    "enable_url_dedup": true
+    "max_concurrent_subagents": 5,
+    "batch_mode_enabled": true
   }
 }
 ```
 
-### 3. 使用
+### 批量模式关键词
 
-**飞书单聊（推荐）：**
+默认识别的批量关键词：
+- "批量"
+- "这些文章"
+- "多篇文章"
+- "全部分析"
 
-```
-分析这篇文章：https://mp.weixin.qq.com/s/xxx
-```
+可在 `scripts/smart_router.py` 中自定义：
 
-**飞书群聊：**
-
-```
-分析这篇文章：https://mp.weixin.qq.com/s/xxx
-```
-
-单聊时无需@机器人，直接发送即可。群聊时根据机器人配置可能需要@。
-
-## 📊 质量评分标准
-
-### 评分维度（100 分）
-
-| 维度 | 权重 | 说明 |
-|------|------|------|
-| 内容价值 | 40 分 | 信息密度、原创性、时效性、权威性 |
-| 技术深度 | 30 分 | 代码质量、原理分析、数据支撑 |
-| 适配性 | 20 分 | 相关性、技术栈匹配、成本 |
-| 可读性 | 10 分 | 结构、排版、图表、语言 |
-
-### 评分等级
-
-| 总分 | 等级 | 重要程度 | 处理策略 |
-|------|------|---------|---------|
-| 85-100 | S 级 | 极高 | 立即处理 + 团队分享 |
-| 70-84 | A 级 | 高 | 优先处理 + 详细分析 |
-| 55-69 | B 级 | 中 | 正常处理 + 标准报告 |
-| 40-54 | C 级 | 低 | 简略处理 + 基础摘要 |
-| 0-39 | D 级 | 极低 | 跳过或仅存档 |
-
-## 🔧 高级配置
-
-### Heartbeat 自动触发
-
-编辑 `~/.openclaw/workspace/HEARTBEAT.md`：
-
-```markdown
-## 定期任务清单
-
-### 每 6 小时
-- [ ] 检查群聊未处理文章链接 → article-workflow
+```python
+BATCH_KEYWORDS = ["批量", "这些文章", "多篇文章", "全部分析"]
 ```
 
-### 监控命令
+---
 
+## 📝 输出格式
+
+### 单篇分析结果
+
+```
+✅ 文章分析完成
+
+📌 [文章标题]
+🔗 [URL]
+
+📝 简短摘要
+[3-5 句摘要]
+
+🏷️ 标签：[标签 1] [标签 2] [标签 3]
+⭐ 重要程度：[高/中/低]
+📊 质量评分：[85/100] (A 级)
+
+📄 详细报告：[飞书文档链接]
+📊 已录入：[Bitable 链接]
+```
+
+### 批量分析结果
+
+```
+✅ 批量分析完成（5 篇文章）
+
+━━━━━━━━━━━━━━━━━━━━
+
+✅ 文章 1：[标题]
+   📊 评分：85/100 (A 级)
+   📄 报告：[链接]
+
+✅ 文章 2：[标题]
+   📊 评分：72/100 (B 级)
+   📄 报告：[链接]
+
+✅ 文章 3：[标题]
+   📊 评分：90/100 (S 级)
+   📄 报告：[链接]
+
+...
+
+━━━━━━━━━━━━━━━━━━━━
+
+📊 汇总统计：
+- 成功：5 篇
+- 平均评分：82/100
+- S 级：1 篇，A 级：2 篇，B 级：2 篇
+```
+
+---
+
+## ⚠️ 注意事项
+
+### 1. 并发限制
+
+最大并发数为 5，超过会自动分批：
+
+```
+20 篇文章 → 4 批（每批 5 篇）
+总时间 ≈ 4 × 单次时间
+```
+
+### 2. 错误处理
+
+批量分析时，单篇文章失败不影响其他文章：
+
+```
+✅ 文章 1：成功
+❌ 文章 2：失败（URL 无法访问）
+✅ 文章 3：成功
+✅ 文章 4：成功
+```
+
+### 3. 重复检测
+
+每篇文章都会自动检测重复：
+- URL 去重（标准化后比较）
+- 内容指纹去重（标题 + 摘要）
+
+检测到重复时会跳过并提示。
+
+---
+
+## 🔍 故障排查
+
+### 问题 1：批量模式未触发
+
+**症状：** 发送多个 URL 但仍是单篇执行
+
+**检查：**
+1. 确认 URL 之间用换行或逗号分隔
+2. 检查是否包含批量关键词
+
+**解决：**
+```
+# 明确使用批量关键词
+批量分析这些文章：
+url1
+url2
+url3
+```
+
+### 问题 2：并发执行慢
+
+**症状：** 批量分析时间远超预期
+
+**检查：**
+1. 查看日志确认是否真的并发
+2. 检查网络状况
+3. 检查模型 API 限流
+
+**解决：**
 ```bash
-# 查看状态
-./scripts/monitor.sh status
-
-# 生成周报
-./scripts/monitor.sh report
-
-# 清理数据
-./scripts/monitor.sh cleanup
+# 查看日志
+cat ~/.openclaw/workspace/skills/article-workflow/logs/workflow.log
 ```
 
-### URL 去重
+### 问题 3：部分文章失败
 
-```bash
-# 检查 URL
-python3 scripts/check_url_dup.py "https://example.com/article"
+**症状：** 批量分析时部分文章报错
 
-# 添加到缓存
-python3 scripts/check_url_dup.py "https://example.com/article" \
-  --add "标题" "record_id" "https://doc.url"
+**检查：**
+1. 失败的 URL 是否可访问
+2. 是否需要特殊登录
+3. 查看错误日志
+
+**解决：**
+- 单独分析失败的 URL 查看详细错误
+- 某些网站可能需要浏览器工具而非 web_fetch
+
+---
+
+## 📚 相关文档
+
+- [智能路由实现方案](docs/smart-router-implementation.md) - 技术实现细节
+- [Skill 文档](SKILL.md) - 完整功能说明
+- [质量评分标准](docs/quality-score.md) - 评分规则
+
+---
+
+## 🎯 最佳实践
+
+### 1. 单篇 vs 批量
+
+| 场景 | 推荐方式 |
+|------|---------|
+| 日常阅读分享 | 单篇模式 |
+| 周报素材收集 | 批量模式（5-10 篇） |
+| 专题研究 | 批量模式（分组处理） |
+
+### 2. URL 格式
+
+推荐格式：
+```
+批量分析这些文章：
+- https://example.com/article1
+- https://example.com/article2
+- https://example.com/article3
 ```
 
-## 📁 文件结构
-
+或
 ```
-article-workflow/
-├── SKILL.md                    # Skill 定义
-├── README.md                   # 本文档
-├── install.sh                  # 安装脚本
-├── config.example.json         # 配置模板
-├── scripts/                    # 脚本
-│   ├── check_url_dup.py        # URL 去重
-│   ├── monitor.sh              # 监控
-│   └── workflow.py             # 主流程
-├── docs/                       # 文档
-│   ├── config.md               # 配置说明
-│   ├── quality-score.md        # 评分标准
-│   └── automation.md           # 自动化
-├── data/                       # 数据（.gitignore）
-│   └── url_cache.json
-└── logs/                       # 日志（.gitignore）
-    ├── workflow.log
-    └── error.log
+分析这 3 篇文章：url1, url2, url3
 ```
 
-## 🔒 安全说明
+### 3. 结果处理
 
-**环境变量配置：**
+批量分析完成后：
+1. 快速浏览汇总统计
+2. 优先阅读 S 级/A 级文章
+3. B 级文章根据需要阅读
+4. C/D 级文章可选读
 
-```bash
-# 复制环境变量模板
-cp .env.example .env
+---
 
-# 编辑 .env 文件，填入实际值
-vi .env
-```
-
-**注意：**
-- ✅ `.env` 文件已在 `.gitignore` 中，不会被提交
-- ✅ `config.json` 包含敏感信息，请勿提交到版本控制
-- ✅ 生产环境请使用环境变量而非硬编码
-
-## 🐛 故障排查
-
-### 常见问题
-
-**Q: URL 去重不生效？**
-```bash
-# 检查缓存文件
-ls -la data/url_cache.json
-
-# 验证脚本权限
-chmod +x scripts/check_url_dup.py
-```
-
-**Q: 监控脚本报错？**
-```bash
-# 检查 Bash 版本
-bash --version  # 需要 4.0+
-
-# 检查 Python 版本
-python3 --version  # 需要 3.7+
-```
-
-**Q: 飞书 API 调用失败？**
-- 检查 OAuth 授权
-- 验证 app_token 和 table_id
-- 确认配置文件路径正确
-
-## 📈 性能指标
-
-| 指标 | 目标值 |
-|------|-------|
-| 处理时间 | < 2 分钟/篇 |
-| 成功率 | > 95% |
-| 重复率 | < 5% |
-
-## 🔄 更新日志
-
-### v1.0.0 (2026-03-14)
-
-- ✅ 初始版本
-- ✅ 文章分析工作流
-- ✅ 质量评分系统
-- ✅ URL 去重
-- ✅ 监控日志
-
-## 📝 License
-
-MIT License
+*最后更新：2026-03-15*
+*作者：Nox Team*

@@ -32,22 +32,147 @@
 - 对文章进行质量评分（S/A/B/C/D）
 - 自动检查重复 URL
 - 定时自动处理群聊中的文章链接
+- **批量分析多篇文章**（并发执行）
+
+## 🚀 智能路由模式
+
+### 单篇模式（默认）
+
+**触发：** 单篇文章 URL
+
+```
+分析这篇文章：https://example.com/article
+```
+
+**执行方式：** 主 Agent 一次性执行（1 次流式请求）
+
+```
+主 Agent（Nox）
+  ├─ 流式请求开始 ─────┐
+  │  1. web_fetch 抓取   │
+  │  2. 自己分析内容     │  ← 同一次流式请求
+  │  3. 生成完整报告     │
+  │  4. feishu_create_doc│
+  │  5. feishu_bitable   │
+  └─ 流式请求结束 ─────┘
+  
+模型请求次数：1 次 ✅
+```
+
+### 批量模式（自动）
+
+**触发：** 多篇文章 URL
+
+```
+批量分析这些文章：
+- https://example.com/article1
+- https://example.com/article2
+- https://example.com/article3
+```
+
+**执行方式：** SubAgent 并发执行（N 次但并行）
+
+```
+主 Agent（Nox）
+  ├─ 创建 3 个 SubAgent（并发）
+  │   ├─ SubAgent-1: 分析 url1  →  1 次流式请求
+  │   ├─ SubAgent-2: 分析 url2  →  1 次流式请求
+  │   └─ SubAgent-3: 分析 url3  →  1 次流式请求
+  └─ 汇总结果
+  
+模型请求次数：3 次（但并发执行，总时间 ≈ 1 次）✅
+```
+
+### 并发控制
+
+- **最大并发数：** 5 个 SubAgent
+- **超过限制：** 自动分批处理
+- **流式优化：** 工具调用不中断流式，算 1 次请求
+
+---
 
 ## 工作流程
+
+### 单篇模式
 
 ```
 输入：文章 URL
   ↓
-Reader Agent: 抓取内容
-  ↓
-Analyst Agent: 深度分析 + 质量评分
-  ↓
-Librarian Agent: 归档到 Bitable + 飞书文档
+主 Agent 智能路由（单篇模式）
+  ├─ web_fetch 抓取内容
+  ├─ 分析内容 + 质量评分
+  ├─ 生成详细报告
+  ├─ feishu_create_doc 创建文档
+  └─ feishu_bitable 归档到多维表格
   ↓
 输出：摘要 + 报告链接 + 评分
 ```
 
-## 配置参数
+### 批量模式
+
+```
+输入：多篇文章 URL
+  ↓
+主 Agent 智能路由（批量模式）
+  ├─ 创建 SubAgent #1 ─→ 分析文章 1
+  ├─ 创建 SubAgent #2 ─→ 分析文章 2
+  ├─ 创建 SubAgent #3 ─→ 分析文章 3
+  └─ 等待所有 SubAgent 完成
+      ↓
+    汇总所有结果
+  ↓
+输出：汇总报告 + 各文章链接
+```
+
+## 🔧 配置管理
+
+### 配置保护机制
+
+**重要：** `config.json` 包含敏感信息，已加入 `.gitignore`，不会被 Git 提交。
+
+**在修改/升级 Skill 前：**
+```bash
+cd skills/article-workflow
+
+# 1. 备份配置（修改前必做）
+python3 scripts/config_manager.py backup
+
+# 或使用脚本
+./scripts/backup-config.sh
+```
+
+**修改/升级后：**
+```bash
+# 恢复配置
+python3 scripts/config_manager.py restore
+
+# 或使用脚本
+./scripts/restore-config.sh
+```
+
+### 首次使用配置
+
+**方式 1：配置向导（推荐）**
+```bash
+python3 scripts/config_manager.py guide
+```
+
+**方式 2：手动创建**
+```bash
+# 复制示例配置
+cp config.example.json config.json
+
+# 编辑配置
+vim config.json
+```
+
+**方式 3：环境变量**
+```bash
+export BITABLE_APP_TOKEN=your_token
+export BITABLE_TABLE_ID=your_table_id
+```
+
+### 配置参数
 
 在 `config.json` 中配置：
 
