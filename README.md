@@ -30,7 +30,7 @@ python3 scripts/config_manager.py restore  # 恢复配置
 
 **飞书群聊：**
 ```
-@Nox 分析这篇文章：https://example.com/article
+@机器人 分析这篇文章：https://example.com/article
 ```
 
 **CLI 方式：**
@@ -81,7 +81,7 @@ python3 scripts/workflow.py url1 url2 url3
 ```
 用户输入
   ↓
-主 Agent（Nox）
+主 Agent（机器人）
   ├─ 流式请求开始 ─────┐
   │  1. web_fetch 抓取   │
   │  2. 分析内容         │  ← 同一次流式请求
@@ -100,7 +100,7 @@ python3 scripts/workflow.py url1 url2 url3
 ```
 用户输入（5 个 URL）
   ↓
-主 Agent（Nox）
+主 Agent（机器人）
   ├─ 创建 SubAgent #1 ─→ 分析文章 1（1 次流式请求）
   ├─ 创建 SubAgent #2 ─→ 分析文章 2（1 次流式请求）
   ├─ 创建 SubAgent #3 ─→ 分析文章 3（1 次流式请求）
@@ -340,4 +340,4 @@ cat ~/.openclaw/workspace/skills/article-workflow/logs/workflow.log
 ---
 
 *最后更新：2026-03-15*
-*作者：Nox Team*
+*作者：文章工作流团队*

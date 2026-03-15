@@ -130,7 +130,7 @@ cp config.example.json config.json
 在飞书群聊中：
 
 ```
-@Nox 分析这篇文章：https://mp.weixin.qq.com/s/xxx
+@机器人 分析这篇文章：https://mp.weixin.qq.com/s/xxx
 ```
 
 ### 监控命令

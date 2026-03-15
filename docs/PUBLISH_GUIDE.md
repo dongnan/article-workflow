@@ -246,6 +246,6 @@ python3 scripts/integration_test.py all
 
 ---
 
-**发布人：** Nox Team
+**发布人：** 文章工作流团队
 **审核人：** 董楠
 **状态：** ✅ 准备就绪
