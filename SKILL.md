@@ -93,19 +93,40 @@
 
 ## 工作流程
 
-### 单篇模式
+### 单篇模式（完整版）
 
 ```
 输入：文章 URL
   ↓
 主 Agent 智能路由（单篇模式）
-  ├─ web_fetch 抓取内容
-  ├─ 分析内容 + 质量评分
-  ├─ 生成详细报告
-  ├─ feishu_create_doc 创建文档
-  └─ feishu_bitable 归档到多维表格
+  ├─ 1. 图片抓取（如有配图）：
+  │   ├─ browser 打开页面 + 分析 HTML 获取图片 URL
+  │   ├─ curl 下载原图到本地
+  │   └─ 保存到 docs/article/yyyy-mm/images/
+  ├─ 2. 内容抓取：
+  │   ├─ web_fetch 抓取文章内容
+  │   └─ browser 补充抓取（如需要）
+  ├─ 3. 内容分析：
+  │   ├─ 提取核心观点
+  │   ├─ 生成简短摘要
+  │   └─ 质量评分（S/A/B/C/D）
+  ├─ 4. 本地保存（新规则）：
+  │   ├─ 创建 docs/article/yyyy-mm/yyyy-mm-dd_文章标题.md
+  │   └─ 写入完整分析报告
+  ├─ 5. 飞书文档同步：
+  │   ├─ feishu_create_doc 创建飞书文档
+  │   ├─ 图片上传飞书云盘（feishu_drive_file）
+  │   ├─ 图片插入飞书文档（feishu_doc_media）
+  │   └─ feishu_update_doc 更新飞书文档内容
+  ├─ 6. 多维表格归档：
+  │   ├─ feishu_bitable 创建记录
+  │   └─ 填写标题/摘要/标签/链接等字段
+  └─ 7. Git 提交：
+      ├─ git add docs/article/
+      ├─ git commit -m "docs: 分析文章《标题》"
+      └─ git push
   ↓
-输出：摘要 + 报告链接 + 评分
+输出：摘要 + 本地路径 + 飞书文档链接 + 评分
 ```
 
 ### 批量模式
@@ -114,14 +135,14 @@
 输入：多篇文章 URL
   ↓
 主 Agent 智能路由（批量模式）
-  ├─ 创建 SubAgent #1 ─→ 分析文章 1
-  ├─ 创建 SubAgent #2 ─→ 分析文章 2
-  ├─ 创建 SubAgent #3 ─→ 分析文章 3
+  ├─ 创建 SubAgent #1 ─→ 分析文章 1（含图片处理）
+  ├─ 创建 SubAgent #2 ─→ 分析文章 2（含图片处理）
+  ├─ 创建 SubAgent #3 ─→ 分析文章 3（含图片处理）
   └─ 等待所有 SubAgent 完成
       ↓
     汇总所有结果
   ↓
-输出：汇总报告 + 各文章链接
+输出：汇总报告 + 各文章链接（含图）
 ```
 
 ## 🔧 配置管理
@@ -253,6 +274,174 @@ cd skills/article-workflow
 📊 已录入：[Bitable 链接]
 ```
 
+---
+
+## 🖼️ 图片处理流程（新增）
+
+当文章包含重要配图时，按以下流程处理：
+
+### Step 1: 分析文章 HTML 获取图片路径（推荐）
+
+```bash
+# 使用 browser 工具打开文章
+browser(action="open", url="文章 URL")
+
+# 提取所有图片的真实路径
+browser(action="act", kind="evaluate", fn="""
+() => {
+  const imgs = document.querySelectorAll('img');
+  const imgUrls = [];
+  imgs.forEach((img, i) => {
+    if(img.src && img.src.includes('mmbiz')) {
+      imgUrls.push({index: i, src: img.src, alt: img.alt || ''});
+    }
+  });
+  return JSON.stringify(imgUrls, null, 2);
+}
+""")
+# 返回所有图片的真实 URL 列表
+
+# 使用 curl 直接下载图片（推荐，避免截图失真）
+curl -o docs/reference/yyyy-mm/images/{filename}.jpg "图片 URL"
+```
+
+### Step 2: 浏览器截图（备用方案）
+
+```bash
+# 如果无法直接下载，使用 browser 工具截取完整页面
+browser(action="screenshot", fullPage=true, type="png")
+# 返回：MEDIA:/Users/dongnan/.openclaw/media/browser/{uuid}.png
+
+# 如果文章有图片轮播/分页，点击下一页继续截图
+browser(action="act", kind="click", ref="e32")  # 点击第 2 张图
+browser(action="screenshot", fullPage=true, type="png")  # 截图
+
+# 重复直到所有图片都截取完成
+```
+
+### Step 2: 创建本地目录
+
+```bash
+# 创建文档和圖片目录
+mkdir -p docs/reference/{yyyy-mm}/images/
+```
+
+### Step 3: 上传飞书云盘
+
+```bash
+# 复制图片到临时目录（飞书允许的路径）
+cp /Users/dongnan/.openclaw/media/browser/{uuid}.png /var/folders/.../T/{filename}.png
+
+# 使用 feishu_drive_file 上传
+feishu_drive_file(action="upload", file_path="/var/folders/.../T/{filename}.png")
+# 返回：file_token, url
+```
+
+### Step 4: 插入飞书文档
+
+```bash
+# 使用 feishu_doc_media 插入图片到文档
+feishu_doc_media(
+  action="insert",
+  doc_id="{doc_id}",
+  file_path="/var/folders/.../T/{filename}.png",
+  type="image"
+)
+# 返回：block_id, file_token
+```
+
+### Step 5: 本地保存
+
+```bash
+# 复制图片到工作区目录
+cp /Users/dongnan/.openclaw/media/browser/{uuid}.png docs/reference/{yyyy-mm}/images/{filename}.png
+
+# Git 提交
+git add docs/reference/{yyyy-mm}/
+git commit -m "docs: 新增 {文章标题} 分析报告（含配图）"
+git push
+```
+
+### Step 6: 图片内容识别（新增）
+
+```bash
+# 使用 browser 工具截图后，分析图片中的文字内容
+# 对于微信公众号文章，通常有图片轮播/分页，需要：
+# 1. 点击每张图片进行截图
+# 2. 识别图片中的文字内容
+# 3. 整理到分析报告中
+
+# 示例：微信公众号图片轮播
+browser(action="act", kind="click", ref="e32")  # 点击第 1 张
+browser(action="screenshot", fullPage=true)     # 截图
+browser(action="act", kind="click", ref="e33")  # 点击第 2 张
+browser(action="screenshot", fullPage=true)     # 截图
+# ... 重复直到所有图片都截取
+```
+
+### Step 7: 图片内容分析（新增）
+
+```bash
+# 对于每张截图，需要分析图片中的文字内容
+# 方法 1：使用 browser snapshot 获取页面文本
+# 方法 2：使用 OCR 工具识别图片文字
+# 方法 3：人工查看截图并整理内容
+
+# 分析内容应包括：
+# - 图片标题
+# - 关键信息列表
+# - 数据表格
+# - 技能名称和说明
+# - 其他重要文字内容
+
+# 将分析结果整理到 Markdown 报告中
+```
+
+### 目录结构
+
+```
+docs/reference/2026-03/
+├── 2026-03-22_文章标题_分析报告.md  ← Markdown 文档（含相对路径图片引用）
+└── images/
+    ├── 2026-03-22_文章主图.png      ← 主图
+    ├── 2026-03-22_图片 1.png        ← 第 1 张详细内容图
+    ├── 2026-03-22_图片 2.png        ← 第 2 张详细内容图
+    └── ...
+```
+
+### Markdown 图片引用
+
+```markdown
+## 📊 文章主图
+
+![文章主图说明](images/2026-03-22_文章主图.png)
+
+> 配图说明：...
+
+## 📊 详细内容 - 图片 1
+
+![图片 1 说明](images/2026-03-22_图片 1.png)
+
+**图片内容分析：**
+- 标题：...
+- 关键信息：...
+- 技能列表：...
+```
+
+### 注意事项
+
+1. **飞书文档图片** — 必须通过 `feishu_doc_media` 插入，不能使用本地路径
+2. **本地 Markdown** — 使用相对路径引用 `images/xxx.png`
+3. **临时文件** — 上传云盘后需清理 `/var/folders/.../T/` 下的临时文件
+4. **Git 提交** — 图片和 Markdown 文档一起提交，确保版本同步
+5. **文件命名** — 使用 `{日期}_{文章标题}_{图片类型}.png` 格式，避免中文乱码
+6. **多图抓取** — 微信公众号文章通常有图片轮播，需要点击每张图片进行截图
+7. **图片内容识别** — 截图后需要人工或 AI 识别图片中的文字内容，整理到报告中
+
+---
+
+## 🔧 配置管理
+
 ### Bitable 字段映射
 
 **必填字段：**
@@ -269,8 +458,11 @@ cd skills/article-workflow
 | **创建方式** | 手动触发/自动分析 | 根据触发方式 |
 | **URL 链接** | 原文链接 | 用户提供的 URL |
 | **详细报告链接** | 飞书文档链接 | feishu_create_doc 返回 |
+| **封面图片** | 文章主图（可选） | 飞书云盘 file_token |
 
-**注意：** "文章标题（主）"和"标题"都需要填写，确保数据完整性。
+**注意：**
+- "文章标题（主）"和"标题"都需要填写，确保数据完整性
+- 如有配图，需上传飞书云盘后记录 file_token 到"封面图片"字段
 
 ### 质量评分
 
@@ -327,6 +519,15 @@ article-workflow/
 3. **Heartbeat 自动触发**需要在 HEARTBEAT.md 中配置
 4. **日志文件**建议定期清理（>30 天）
 5. **URL 缓存**保留最近 1000 条记录
+6. **图片处理**（新增）：
+   - 飞书文档图片必须通过 `feishu_doc_media` 插入，不能使用本地路径
+   - 本地 Markdown 使用相对路径引用 `images/xxx.png`
+   - 上传云盘前需复制图片到 `/var/folders/.../T/` 临时目录
+   - 图片和文档一起 Git 提交，确保版本同步
+7. **文件命名**：
+   - 使用 `{日期}_{文章标题}_{图片类型}.png` 格式
+   - 避免特殊字符和过长文件名
+   - 中文标题建议使用拼音或英文缩写
 
 ## 故障排查
 
